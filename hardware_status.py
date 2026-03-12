@@ -2,6 +2,8 @@ import time
 import re
 import subprocess
 import psutil
+import json
+import platform
 
 from rich.console import Console
 from rich.table import Table
@@ -11,7 +13,7 @@ from rich.layout import Layout
 from rich.console import Group
 
 console = Console()
-
+WINDOWS_DRIVE_TYPES = {}
 
 def run_command(cmd):
     try:
@@ -20,19 +22,104 @@ def run_command(cmd):
             capture_output=True,
             text=True,
             check=False,
+            shell=False,
         )
-        return result.stdout
+        return result.stdout.strip()
     except Exception:
         return ""
+    
+def get_windows_drive_types():
+    """
+    Return something like:
+    {
+        "C": "Internal",
+        "D": "External",
+        "E": "External"
+    }
+    """
+    mapping = {}
 
+    ps_cmd = [
+        "powershell",
+        "-NoProfile",
+        "-Command",
+        (
+            "Get-CimInstance Win32_LogicalDisk | "
+            "Select-Object DeviceID, DriveType | "
+            "ConvertTo-Json -Compress"
+        ),
+    ]
+
+    output = run_command(ps_cmd)
+    if not output:
+        return mapping
+
+    try:
+        data = json.loads(output)
+        if isinstance(data, dict):
+            data = [data]
+
+        for item in data:
+            device_id = item.get("DeviceID", "")
+            drive_type = item.get("DriveType")
+
+            # Win32_LogicalDisk DriveType:
+            # 2 = Removable disk
+            # 3 = Local disk
+            # 4 = Network drive
+            if not device_id:
+                continue
+
+            letter = device_id.replace(":", "")
+
+            if drive_type == 2:
+                mapping[letter] = "External"
+            elif drive_type == 3:
+                mapping[letter] = "Internal"
+            else:
+                mapping[letter] = "Other"
+
+    except Exception:
+        pass
+
+    return mapping
+def get_windows_bus_map():
+    ps_cmd = [
+        "powershell",
+        "-NoProfile",
+        "-Command",
+        (
+            "Get-Disk | Select Number, FriendlyName, BusType | ConvertTo-Json -Compress"
+        ),
+    ]
+
+    output = run_command(ps_cmd)
+    if not output:
+        return {}
+
+    try:
+        data = json.loads(output)
+        if isinstance(data, dict):
+            data = [data]
+        return {int(d["Number"]): str(d.get("BusType", "")) for d in data}
+    except Exception:
+        return {}
 
 def bytes_to_gb(value):
     return f"{value / (1024 ** 3):.2f} GB"
 
 
 def get_disk_type(mountpoint):
-    if mountpoint.startswith("/Volumes/"):
-        return "External"
+    system = platform.system()
+
+    if system == "Darwin":
+        if mountpoint.startswith("/Volumes/"):
+            return "External"
+        return "Internal"
+
+    if system == "Windows":
+        letter = mountpoint[:1].upper()
+        return WINDOWS_DRIVE_TYPES.get(letter, "Internal")
     return "Internal"
 
 
@@ -42,7 +129,7 @@ def get_smart_devices():
 
     for line in output.splitlines():
         line = line.strip()
-        if not line.startswith("/dev/"):
+        if not (line.startswith("/dev/") or line.startswith("IOService:")):
             continue
 
         main = line.split("#")[0].strip()
@@ -229,24 +316,18 @@ def make_disk_table(partitions):
     return table
 
 
-def make_smart_table(partitions, smart):
-    table = Table(title="Drive SMART / Temperature", expand=True)
-    table.add_column("Type", style="cyan")
-    table.add_column("Device")
-    table.add_column("Mount")
+def make_smart_table(smart):
+    table = Table(title="Physical Drive SMART / Temperature", expand=True)
+    table.add_column("Device", style="cyan")
     table.add_column("Model")
     table.add_column("Health")
     table.add_column("Temp", justify="right")
 
-    seen = set()
+    if not smart:
+        table.add_row("N/A", "No SMART device found", "N/A", "N/A")
+        return table
 
-    for p in partitions:
-        device = p["device"]
-        if device in seen:
-            continue
-        seen.add(device)
-
-        info = smart.get(device, {})
+    for device, info in smart.items():
         temp = info.get("temperature", "N/A")
 
         if temp != "N/A":
@@ -262,16 +343,13 @@ def make_smart_table(partitions, smart):
                 pass
 
         table.add_row(
-            p["type"],
             device,
-            p["mountpoint"],
             info.get("model", "Unknown"),
             info.get("health", "N/A"),
             temp,
         )
 
     return table
-
 
 def make_header(partitions):
     internal_count = sum(1 for p in partitions if p["type"] == "Internal")
@@ -293,12 +371,17 @@ def build_dashboard():
         make_header(partitions),
         make_system_table(),
         make_disk_table(partitions),
-        make_smart_table(partitions, smart),
+        make_smart_table(smart),
     )
     return group
 
 
 def main():
+    global WINDOWS_DRIVE_TYPES
+
+    if platform.system() == "Windows":
+        WINDOWS_DRIVE_TYPES = get_windows_drive_types()
+
     psutil.cpu_percent(interval=None)
 
     with Live(build_dashboard(), console=console, refresh_per_second=1, screen=True) as live:

@@ -16,3 +16,4 @@ __pycache__/
 .idea/
 
 test.py
+dev_kr.py
