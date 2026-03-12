@@ -137,6 +137,23 @@ def parse_model(text: str) -> Optional[str]:
 
     return None
 
+def make_apple_nvme_table(smart):
+    table = Table(title="Apple NVMe SSD", expand=True)
+    table.add_column("Device")
+    table.add_column("Model")
+    table.add_column("Health")
+    table.add_column("Temp")
+
+    for device, info in smart.items():
+        if device.startswith("IOService:"):
+            table.add_row(
+                device,
+                info.get("model", "Unknown"),
+                info.get("health", "N/A"),
+                info.get("temperature", "N/A"),
+            )
+
+    return table
 
 def get_smart_info() -> Dict[str, Dict[str, str]]:
     """
