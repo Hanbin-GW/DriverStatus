@@ -1,0 +1,16 @@
+dist/
+build/
+.vscode/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.db
+*.sqlite
+*.bak
+*.tmp
+*.swp
+.DS_Store
+.idea/
