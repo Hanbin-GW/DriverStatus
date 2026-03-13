@@ -14,6 +14,53 @@ from rich.console import Group
 
 console = Console()
 WINDOWS_DRIVE_TYPES = {}
+last_disk = None
+
+def get_cpu_temp():
+    output = run_command([
+        "powermetrics",
+        "--samplers",
+        "smc",
+        "-n",
+        "1"
+    ])
+
+    m = re.search(r"CPU die temperature:\s+([\d.]+)", output)
+    if m:
+        return f"{m.group(1)} °C"
+
+    return "N/A"
+
+def get_gpu_temp():
+    output = run_command([
+        "powermetrics",
+        "--samplers",
+        "smc",
+        "-n",
+        "1"
+    ])
+
+    m = re.search(r"GPU die temperature:\s+([\d.]+)", output)
+    if m:
+        return f"{m.group(1)} °C"
+
+    return "N/A"
+
+def get_disk_speed():
+    global last_disk
+
+    io = psutil.disk_io_counters()
+
+    if last_disk is None:
+        last_disk = io
+        return "0 MB/s", "0 MB/s"
+
+    read = (io.read_bytes - last_disk.read_bytes) / 1024 / 1024
+    write = (io.write_bytes - last_disk.write_bytes) / 1024 / 1024
+
+    last_disk = io
+
+    return f"{read:.2f} MB/s", f"{write:.2f} MB/s"
 
 def run_command(cmd):
     try:
@@ -255,6 +302,9 @@ def get_partitions():
 def make_system_table():
     cpu = psutil.cpu_percent(interval=None)
     mem = psutil.virtual_memory()
+    cpu_temp = get_cpu_temp()
+    gpu_temp = get_gpu_temp()
+    read_speed, write_speed = get_disk_speed()
 
     table = Table(title="System Summary", expand=True)
     table.add_column("Metric", style="cyan")
@@ -274,6 +324,10 @@ def make_system_table():
 
     table.add_row("CPU Usage", f"[{cpu_style}]{cpu:.1f}%[/{cpu_style}]")
     table.add_row("CPU Cores", str(psutil.cpu_count(logical=True)))
+    table.add_row("CPU Temp", cpu_temp)
+    table.add_row("GPU Temp", gpu_temp)
+    table.add_row("Disk Read", read_speed)
+    table.add_row("Disk Write", write_speed)
     table.add_row(
         "Memory Usage",
         f"[{mem_style}]{mem.percent:.1f}%[/{mem_style}]"
