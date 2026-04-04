@@ -16,6 +16,30 @@ console = Console()
 WINDOWS_DRIVE_TYPES = {}
 last_disk = None
 
+def get_cpu_gpu_temp():
+    output = run_command([
+        "powermetrics",
+        "--samplers",
+        "smc",
+        "-n",
+        "1"
+    ])
+
+    cpu_temp = "N/A"
+    gpu_temp = "N/A"
+
+    print("POWERMETRICS RAW:", repr(output[:1000]))
+
+    m = re.search(r"CPU die temperature:\s+([\d.]+)", output)
+    if m:
+        cpu_temp = f"{m.group(1)} °C"
+
+    m = re.search(r"GPU die temperature:\s+([\d.]+)", output)
+    if m:
+        gpu_temp = f"{m.group(1)} °C"
+
+    return cpu_temp, gpu_temp
+
 def get_cpu_temp():
     output = run_command([
         "powermetrics",
@@ -24,6 +48,7 @@ def get_cpu_temp():
         "-n",
         "1"
     ])
+    print("CPU TEMP RAW:", repr(output[:500]))
 
     m = re.search(r"CPU die temperature:\s+([\d.]+)", output)
     if m:
@@ -39,6 +64,7 @@ def get_gpu_temp():
         "-n",
         "1"
     ])
+    print("GPU TEMP RAW:", repr(output[:500]))
 
     m = re.search(r"GPU die temperature:\s+([\d.]+)", output)
     if m:
@@ -302,8 +328,9 @@ def get_partitions():
 def make_system_table():
     cpu = psutil.cpu_percent(interval=None)
     mem = psutil.virtual_memory()
-    cpu_temp = get_cpu_temp()
-    gpu_temp = get_gpu_temp()
+    # cpu_temp = get_cpu_temp()
+    # gpu_temp = get_gpu_temp()
+    cpu_temp, gpu_temp = get_cpu_gpu_temp()
     read_speed, write_speed = get_disk_speed()
 
     table = Table(title="System Summary", expand=True)
